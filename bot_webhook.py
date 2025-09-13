@@ -145,12 +145,12 @@ def handle_all(message):
 # --- Вебхук endpoint для Telegram ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    if request.headers.get('content-type') != 'application/json':
-        abort(403)
+if not request.is_json:
+    abort(403)
     json_string = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
-    return '', 200
+    return "OK", 200
 
 # Простая корневая страница — проверка
 @app.route('/')
@@ -174,5 +174,6 @@ def set_webhook_if_needed():
 
 # Выполнить при импорте (gunicorn импортирует модуль)
 set_webhook_if_needed()
+
 
 

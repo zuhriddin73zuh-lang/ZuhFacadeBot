@@ -1,179 +1,112 @@
-# bot_webhook.py
-# Запускать через gunicorn: gunicorn bot_webhook:app --bind 0.0.0.0:$PORT
+# -*- coding: utf-8 -*-
 import os
-import re
-from flask import Flask, request, abort
 import telebot
 from telebot import types
+from flask import Flask, request
 
-# --- Настройка через переменные окружения (на Render: Environment) ---
-TOKEN = os.environ.get("TELEGRAM_TOKEN")          # обязательно установить
-GROUP_ID = os.environ.get("GROUP_ID")             # например: -1001234567890
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")       # например: https://your-service.onrender.com/webhook
+# Переменные окружения (Render)
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+GROUP_ID = int(os.getenv("GROUP_ID"))
 
-if not TOKEN or not GROUP_ID:
-    raise RuntimeError("TELEGRAM_TOKEN и GROUP_ID должны быть установлены в окружении")
-
-GROUP_ID = int(GROUP_ID)
-
-# --- Инициализация ---
-bot = telebot.TeleBot(TOKEN, threaded=False)
+bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# Простое хранилище состояний (в проде: лучше Redis или DB)
-STATE = {}  # { chat_id: { 'lang': 'rus'|'uz', 'step': 'name'|'phone'|'comment', 'name':..., 'phone':... } }
+# Хранение состояния пользователей
+user_state = {}
+user_data = {}
 
-# Тексты на двух языках
-TEXTS = {
-    "rus": {
-        "choose": "Выберите язык / Tilni tanlang:",
-        "ask_name": "Как Вас зовут?",
-        "ask_phone": "Отправьте ваш телефон (или нажмите кнопку отправить контакт).",
-        "phone_invalid": "Неправильный номер. Введите ещё раз (цифры, + и пробелы допустимы).",
-        "ask_comment": "Комментарий / Адрес / Кратко опишите задачу (можно оставить пустым).",
-        "thanks": "Спасибо, заявка принята. Мы свяжемся с вами.",
-        "submission": "<b>Новая заявка</b>\nИмя: {name}\nТелефон: {phone}\nКомментарий: {comment}\nОт: @{username} ({chat_id})"
-    },
-    "uz": {
-        "choose": "Tilni tanlang / Выберите язык:",
-        "ask_name": "Ismingiz nima?",
-        "ask_phone": "Telefon raqamingizni yuboring (yoki kontaktni yuborish tugmasini bosing).",
-        "phone_invalid": "Noto'g'ri raqam. Iltimos qayta kiriting.",
-        "ask_comment": "Izoh / Manzil / Vazifani qisqacha yozing (bo'sh qoldirish mumkin).",
-        "thanks": "Rahmat, so'rov qabul qilindi. Siz bilan bog'lanamiz.",
-        "submission": "<b>Yangi so'rov</b>\nIsm: {name}\nTelefon: {phone}\nIzoh: {comment}\nKimdan: @{username} ({chat_id})"
-    }
+# Вопросы на двух языках
+QUESTIONS = {
+    "ru": [
+        "Как вас зовут?",
+        "Укажите адрес:",
+        "Ваш номер телефона:",
+        "Сколько квадратов?",
+        "Оставьте комментарий:"
+    ],
+    "uz": [
+        "Ismingizni kiriting:",
+        "Manzilingizni yozing:",
+        "Telefon raqamingiz:",
+        "Necha kvadrat?",
+        "Izoh qoldiring:"
+    ]
 }
 
-# --- Хэндлеры бота ---
-@bot.message_handler(commands=['start'])
-def cmd_start(message):
+THANK_YOU = {
+    "ru": "✅ Спасибо! Ваша заявка принята.",
+    "uz": "✅ Rahmat! So'rovingiz qabul qilindi."
+}
+
+LANGUAGE_SELECT = "Выберите язык / Tilni tanlang:"
+
+# Начало диалога — выбор языка
+@bot.message_handler(func=lambda m: True, content_types=['text'])
+def start_dialog(message):
+    if message.chat.id not in user_state:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("Русский 🇷🇺", callback_data="lang_ru"))
+        markup.add(types.InlineKeyboardButton("O‘zbekcha 🇺🇿", callback_data="lang_uz"))
+        bot.send_message(message.chat.id, LANGUAGE_SELECT, reply_markup=markup)
+
+# Обработка выбора языка
+@bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
+def handle_language(call):
+    lang = call.data.split("_")[1]
+    user_state[call.message.chat.id] = {"lang": lang, "step": 0}
+    user_data[call.message.chat.id] = []
+    bot.send_message(call.message.chat.id, QUESTIONS[lang][0])
+
+# Обработка ответов пользователя
+@bot.message_handler(func=lambda message: message.chat.id in user_state)
+def handle_answers(message):
     chat_id = message.chat.id
-    # Inline-кнопки выбора языка
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("Русский", callback_data="lang_rus"),
-           types.InlineKeyboardButton("O'zbek", callback_data="lang_uz"))
-    bot.send_message(chat_id, TEXTS['rus']['choose'], reply_markup=kb)
+    state = user_state[chat_id]
+    lang = state["lang"]
+    step = state["step"]
 
-@bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("lang_"))
-def callback_lang(call):
-    chat_id = call.message.chat.id
-    lang = 'rus' if call.data == 'lang_rus' else 'uz'
-    STATE[chat_id] = {'lang': lang, 'step': 'name'}
-    bot.answer_callback_query(call.id)
-    bot.send_message(chat_id, TEXTS[lang]['ask_name'])
+    user_data[chat_id].append(message.text)
+    state["step"] += 1
 
-# Главный handler — получает текст и контакты
-@bot.message_handler(content_types=['text', 'contact'])
-def handle_all(message):
-    chat_id = message.chat.id
-    user_state = STATE.get(chat_id)
-
-    if not user_state:
-        # Просим нажать /start, если пользователь не выбрал язык
-        kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        kb.row(types.KeyboardButton("/start"))
-        bot.send_message(chat_id, "Нажмите /start чтобы начать / Boshlash uchun /start bosing.", reply_markup=kb)
-        return
-
-    lang = user_state.get('lang', 'rus')
-    step = user_state.get('step', 'name')
-
-    # --- Шаг: имя ---
-    if step == 'name':
-        name = (message.text or "").strip()
-        if not name:
-            bot.send_message(chat_id, TEXTS[lang]['ask_name'])
-            return
-        user_state['name'] = name
-        user_state['step'] = 'phone'
-        # Предложим отправить контакт кнопкой
-        kb = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        kb.add(types.KeyboardButton(TEXTS[lang]['ask_phone'], request_contact=True))
-        bot.send_message(chat_id, TEXTS[lang]['ask_phone'], reply_markup=kb)
-        return
-
-    # --- Шаг: телефон ---
-    if step == 'phone':
-        phone = None
-        if message.contact:
-            phone = message.contact.phone_number
-        else:
-            phone = (message.text or "").strip()
-        # Простая валидация: минимально 6 цифр
-        phone_clean = re.sub(r'[^\d\+]', '', phone or "")
-        if not phone_clean or len(re.sub(r'\D', '', phone_clean)) < 6:
-            bot.send_message(chat_id, TEXTS[lang]['phone_invalid'])
-            return
-        user_state['phone'] = phone_clean
-        user_state['step'] = 'comment'
-        # убрать клавиатуру с кнопкой контакта
-        kb = types.ReplyKeyboardRemove()
-        bot.send_message(chat_id, TEXTS[lang]['ask_comment'], reply_markup=kb)
-        return
-
-    # --- Шаг: комментарий ---
-    if step == 'comment':
-        comment = (message.text or "").strip()
-        user_state['comment'] = comment or "-"
-        # Сформируем сообщение в группу
-        name = user_state.get('name', '-')
-        phone = user_state.get('phone', '-')
-        username = message.from_user.username or ""
-        submission = TEXTS[lang]['submission'].format(
-            name=escape_html(name),
-            phone=escape_html(phone),
-            comment=escape_html(user_state['comment']),
-            username=escape_html(username),
-            chat_id=chat_id
+    if state["step"] < len(QUESTIONS[lang]):
+        bot.send_message(chat_id, QUESTIONS[lang][state["step"]])
+    else:
+        # Все ответы собраны
+        answers = user_data[chat_id]
+        application = (
+            f"📩 Новая заявка\n\n"
+            f"👤 Имя: {answers[0]}\n"
+            f"🏠 Адрес: {answers[1]}\n"
+            f"📞 Телефон: {answers[2]}\n"
+            f"📐 Квадратов: {answers[3]}\n"
+            f"💬 Комментарий: {answers[4]}"
         )
-        try:
-            bot.send_message(GROUP_ID, submission, parse_mode='HTML')
-        except Exception as e:
-            # если отправка в группу не удалась — уведомим пользователя (и залогируем)
-            bot.send_message(chat_id, "Ошибка при отправке заявки в группу. Свяжитесь с админом.")
-            print("Error sending to group:", e)
-            # не удаляем состояние — можно попытаться снова
-            return
+        bot.send_message(GROUP_ID, application)
+        bot.send_message(chat_id, THANK_YOU[lang])
 
-        # Подтверждение пользователю
-        bot.send_message(chat_id, TEXTS[lang]['thanks'])
-        # Очистим состояние
-        STATE.pop(chat_id, None)
-        return
+        # Сброс состояния
+        user_state.pop(chat_id)
+        user_data.pop(chat_id)
 
-# --- Вебхук endpoint для Telegram ---
-@app.route('/webhook', methods=['POST'])
+# Flask webhook
+@app.route("/webhook", methods=["POST"])
 def webhook():
-if not request.is_json:
-    abort(403)
-    json_string = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
+    if not request.is_json:
+        return "unsupported", 403
+    update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
     bot.process_new_updates([update])
     return "OK", 200
 
-# Простая корневая страница — проверка
-@app.route('/')
+@app.route("/")
 def index():
-    return "OK", 200
+    return "Bot is running", 200
 
-# Утилита (простая экранизация HTML)
-def escape_html(s: str) -> str:
-    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
-# --- Установка webhook при старте (если задан WEBHOOK_URL) ---
-def set_webhook_if_needed():
-    if WEBHOOK_URL:
-        try:
-            bot.remove_webhook()
-            # Telegram требует полный URL до endpoint'а
-            bot.set_webhook(url=WEBHOOK_URL)
-            print("Webhook установлен ->", WEBHOOK_URL)
-        except Exception as e:
-            print("Не удалось установить webhook:", e)
+           
+        
 
-# Выполнить при импорте (gunicorn импортирует модуль)
-set_webhook_if_needed()
 
 
 

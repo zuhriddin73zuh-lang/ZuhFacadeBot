@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+ # -*- coding: utf-8 -*-
 import os
 import telebot
 from telebot import types
@@ -14,12 +14,11 @@ app = Flask(__name__)
 # Хранение состояния пользователей
 user_state = {}
 user_data = {}
-all_applications = {}  # Для хранения всех заявок по chat_id
 
 # Вопросы на двух языках
 QUESTIONS = {
     "ru": [
-        "Здравствуйте! Пожалуйста, укажите ваше имя:",
+        "Здравствуйте! Как вас зовут?",
         "Укажите адрес:",
         "Ваш номер телефона:",
         "Сколько квадратов?",
@@ -36,50 +35,44 @@ QUESTIONS = {
 
 THANK_YOU = {
     "ru": "✅ Спасибо! Ваша заявка принята, мы вам скоро позвоним.",
-    "uz": "✅ Rahmat! So'rovingiz qabul qilindi, tez orada sizga qo‘ng‘iroq qilamiz."
+    "uz": "✅ Rahmat! So'rovingiz qabul qilindi, tez orada sizga qo'ng'iroq qilamiz."
 }
 
-# Старт через ссылку с канала: ?start=ru или ?start=uz
+# Начало диалога после перехода с канала
 @bot.message_handler(commands=['start'])
-def start_dialog(message):
+def start(message):
     chat_id = message.chat.id
-    # Определяем язык через параметр start
-    lang = "ru"  # По умолчанию русский
-    if message.text.startswith("/start uz"):
-        lang = "uz"
-    elif message.text.startswith("/start go"):
-        lang = "ru"
-    elif message.text.startswith("/start info"):
-        lang = "ru"  # можно расширить для инфо
-    elif message.text.startswith("/start faq"):
-        lang = "ru"  # можно расширить для faq
-
-    # Инициализируем состояние
+    args = message.text.split()
+    # Определяем язык по кнопке канала: ?start=go_rus или ?start=go_uz
+    lang = "ru"  # по умолчанию русский
+    if len(args) > 1:
+        if "uz" in args[1].lower():
+            lang = "uz"
     user_state[chat_id] = {"lang": lang, "step": 0}
     user_data[chat_id] = []
-
-    # Начинаем первый вопрос
     bot.send_message(chat_id, QUESTIONS[lang][0])
 
 # Обработка ответов пользователя
 @bot.message_handler(func=lambda message: message.chat.id in user_state)
 def handle_answers(message):
     chat_id = message.chat.id
+    if message.content_type != 'text':
+        bot.send_message(chat_id, "⚠️ Пожалуйста, отвечайте текстом.")
+        return
+
     state = user_state[chat_id]
     lang = state["lang"]
     step = state["step"]
 
-    # Сохраняем ответ
-    user_data[chat_id].append(message.text)
+    user_data[chat_id].append(message.text.strip())
     state["step"] += 1
 
     if state["step"] < len(QUESTIONS[lang]):
-        # Следующий вопрос
         bot.send_message(chat_id, QUESTIONS[lang][state["step"]])
     else:
         # Все ответы собраны
         answers = user_data[chat_id]
-        application_text = (
+        application = (
             f"📩 Новая заявка\n\n"
             f"👤 Имя: {answers[0]}\n"
             f"🏠 Адрес: {answers[1]}\n"
@@ -87,15 +80,10 @@ def handle_answers(message):
             f"📐 Квадратов: {answers[3]}\n"
             f"💬 Комментарий: {answers[4]}"
         )
-        # Отправка в группу
-        bot.send_message(GROUP_ID, application_text)
-        # Сообщение пользователю
+        bot.send_message(GROUP_ID, application)
         bot.send_message(chat_id, THANK_YOU[lang])
 
-        # Сохраняем в долговременную базу
-        all_applications[chat_id] = answers
-
-        # Сброс состояния диалога
+        # Сброс состояния
         user_state.pop(chat_id)
         user_data.pop(chat_id)
 
@@ -114,11 +102,11 @@ def index():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-    
+   
 
            
         
+
 
 
 

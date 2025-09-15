@@ -90,27 +90,28 @@ def form_handler(message):
 # -----------------------
 # Flask webhook
 # -----------------------
-@app.route('/' + TOKEN, methods=['POST'])
-def getMessage():
+@app.route('/webhook', methods=['POST'])
+def webhook():
     json_str = request.stream.read().decode("utf-8")
     update = telebot.types.Update.de_json(json_str)
     bot.process_new_updates([update])
-    return "!", 200
+    return "OK", 200
+
 
 @app.route("/")
-def webhook():
-    bot.remove_webhook()
-    bot.set_webhook(url="https://zuhfacadebot-1.onrender.com/" + TOKEN)
-    return "!", 200
+def index():
+    return "Bot is running!", 200
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
 
+
    
 
            
         
+
 
 
 

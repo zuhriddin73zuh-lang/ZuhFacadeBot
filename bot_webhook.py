@@ -274,7 +274,7 @@ if __name__ == "__main__":
     bot.remove_webhook()
     # Устанавливаем вебхук на нужный URL (ЗАМЕНИТE YOUR_RENDER_URL на ваш реальный URL)
     # Например: https://your-bot-name.onrender.com/webhook
-    bot.set_webhook(url=https://zuhfacadebot-1.onrender.com/webhook)
+    bot.set_webhook(url="https://zuhfacadebot-1.onrender.com/webhook")
     # Запускаем Flask app
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
@@ -284,6 +284,7 @@ if __name__ == "__main__":
 
            
         
+
 
 
 

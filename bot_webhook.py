@@ -1,111 +1,117 @@
- # -*- coding: utf-8 -*-
-import os
+# -*- coding: utf-8 -*-
 import telebot
 from telebot import types
 from flask import Flask, request
 
-# Переменные окружения (Render)
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-GROUP_ID = int(os.getenv("GROUP_ID"))
+TOKEN = "7592969962:AAFavNdgwxlyzf-oPRvVeDNLOzfPFjWrjbw"
+GROUP_ID = -1002297999589  # твоя группа для заявок
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# Хранение состояния пользователей
-user_state = {}
-user_data = {}
+STATE = {}  # сохраняем состояние пользователя
 
-# Вопросы на двух языках
-QUESTIONS = {
-    "ru": [
-        "Здравствуйте! Как вас зовут?",
-        "Укажите адрес:",
-        "Ваш номер телефона:",
-        "Сколько квадратов?",
-        "Оставьте комментарий:"
-    ],
-    "uz": [
-        "Assalomu alaykum! Ismingizni kiriting:",
-        "Manzilingizni yozing:",
-        "Telefon raqamingiz:",
-        "Necha kvadrat?",
-        "Izoh qoldiring:"
-    ]
-}
-
-THANK_YOU = {
-    "ru": "✅ Спасибо! Ваша заявка принята, мы вам скоро позвоним.",
-    "uz": "✅ Rahmat! So'rovingiz qabul qilindi, tez orada sizga qo'ng'iroq qilamiz."
-}
-
-# Начало диалога после перехода с канала
+# -----------------------
+# /start с выбором языка из параметра
+# -----------------------
 @bot.message_handler(commands=['start'])
 def start(message):
-    chat_id = message.chat.id
     args = message.text.split()
-    # Определяем язык по кнопке канала: ?start=go_rus или ?start=go_uz
+
     lang = "ru"  # по умолчанию русский
     if len(args) > 1:
-        if "uz" in args[1].lower():
+        param = args[1].lower()
+        if param in ["uz", "go_uz"]:
             lang = "uz"
-    user_state[chat_id] = {"lang": lang, "step": 0}
-    user_data[chat_id] = []
-    bot.send_message(chat_id, QUESTIONS[lang][0])
+        elif param in ["ru", "go_ru"]:
+            lang = "ru"
 
-# Обработка ответов пользователя
-@bot.message_handler(func=lambda message: message.chat.id in user_state)
-def handle_answers(message):
-    chat_id = message.chat.id
-    if message.content_type != 'text':
-        bot.send_message(chat_id, "⚠️ Пожалуйста, отвечайте текстом.")
-        return
+    # сохраняем язык и состояние
+    STATE[message.chat.id] = {"lang": lang, "step": "name"}
 
-    state = user_state[chat_id]
-    lang = state["lang"]
-    step = state["step"]
-
-    user_data[chat_id].append(message.text.strip())
-    state["step"] += 1
-
-    if state["step"] < len(QUESTIONS[lang]):
-        bot.send_message(chat_id, QUESTIONS[lang][state["step"]])
+    if lang == "ru":
+        bot.send_message(message.chat.id, "Здравствуйте! Введите ваше имя:")
     else:
-        # Все ответы собраны
-        answers = user_data[chat_id]
-        application = (
-            f"📩 Новая заявка\n\n"
-            f"👤 Имя: {answers[0]}\n"
-            f"🏠 Адрес: {answers[1]}\n"
-            f"📞 Телефон: {answers[2]}\n"
-            f"📐 Квадратов: {answers[3]}\n"
-            f"💬 Комментарий: {answers[4]}"
-        )
-        bot.send_message(GROUP_ID, application)
-        bot.send_message(chat_id, THANK_YOU[lang])
+        bot.send_message(message.chat.id, "Salom! Ismingizni kiriting:")
 
-        # Сброс состояния
-        user_state.pop(chat_id)
-        user_data.pop(chat_id)
+# -----------------------
+# Опросник (имя → телефон → комментарий)
+# -----------------------
+@bot.message_handler(func=lambda m: m.chat.id in STATE)
+def form_handler(message):
+    user_state = STATE[message.chat.id]
+    lang = user_state["lang"]
 
+    if user_state["step"] == "name":
+        user_state["name"] = message.text
+        user_state["step"] = "phone"
+        if lang == "ru":
+            bot.send_message(message.chat.id, "Введите ваш номер телефона:")
+        else:
+            bot.send_message(message.chat.id, "Telefon raqamingizni kiriting:")
+
+    elif user_state["step"] == "phone":
+        user_state["phone"] = message.text
+        user_state["step"] = "comment"
+        if lang == "ru":
+            bot.send_message(message.chat.id, "Введите комментарий (или напишите «нет»):")
+        else:
+            bot.send_message(message.chat.id, "Izoh kiriting (yoki «yo‘q» deb yozing):")
+
+    elif user_state["step"] == "comment":
+        user_state["comment"] = message.text
+
+        # -----------------------
+        # Заявка в группу (тоже на выбранном языке)
+        # -----------------------
+        if lang == "ru":
+            text = (
+                "📩 Новая заявка:\n\n"
+                f"👤 Имя: {user_state['name']}\n"
+                f"📞 Телефон: {user_state['phone']}\n"
+                f"💬 Комментарий: {user_state['comment']}"
+            )
+            thank = "✅ Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время."
+        else:
+            text = (
+                "📩 Yangi ariza:\n\n"
+                f"👤 Ism: {user_state['name']}\n"
+                f"📞 Telefon: {user_state['phone']}\n"
+                f"💬 Izoh: {user_state['comment']}"
+            )
+            thank = "✅ Rahmat! Arizangiz qabul qilindi. Tez orada siz bilan bog‘lanamiz."
+
+        bot.send_message(GROUP_ID, text)
+        bot.send_message(message.chat.id, thank)
+
+        # очищаем состояние
+        del STATE[message.chat.id]
+
+# -----------------------
 # Flask webhook
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    if not request.is_json:
-        return "unsupported", 403
-    update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
+# -----------------------
+@app.route('/' + TOKEN, methods=['POST'])
+def getMessage():
+    json_str = request.stream.read().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
     bot.process_new_updates([update])
-    return "OK", 200
+    return "!", 200
 
 @app.route("/")
-def index():
-    return "Bot is running", 200
+def webhook():
+    bot.remove_webhook()
+    bot.set_webhook(url="https://zuhfacadebot-1.onrender.com/" + TOKEN)
+    return "!", 200
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=10000)
+
    
 
            
         
+
 
 
 

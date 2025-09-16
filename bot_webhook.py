@@ -1,47 +1,3 @@
-import os
-import logging
-from flask import Flask, request
-import telebot
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Конфигурация
-TOKEN = "7592969962:AAE93nt3NRENC9LCxfomvONl7zqozS2SZh8"
-GROUP_ID = -1094323262
-
-logger.info("✅ Bot starting...")
-logger.info(f"Token: {TOKEN}")
-logger.info(f"Group ID: {GROUP_ID}")
-
-bot = telebot.TeleBot(TOKEN)
-app = Flask(__name__)
-
-# Вопросы на двух языках
-QUESTIONS = {
-    "ru": [
-        "Здравствуйте! Пожалуйста, укажите ваше имя:",
-        "Укажите адрес объекта:",
-        "Ваш номер телефона:",
-        "Примерная квадратура (м²):",
-        "Оставьте комментарий или фото дома:"
-    ],
-    "uz": [
-        "Assalomu alaykum! Iltimos, ismingizni kiriting:",
-        "Obekt manzilini yozing:",
-        "Telefon raqamingiz:",
-        "Taxminiy maydon (m²):",
-        "Izoh yoki uy rasmini yuboring:"
-    ]
-}
-
-THANK_YOU = {
-    "ru": "✅ Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.",
-    "uz": "✅ Rahmat! So'rovingiz qabul qilindi. Tez orada siz bilan bog'lanamiz."
-}
-
-user_data = {}
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -131,3 +87,4 @@ if __name__ == '__main__':
     logger.info("🚀 Starting Flask server...")
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+

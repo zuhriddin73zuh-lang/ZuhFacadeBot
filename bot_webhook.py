@@ -1,5 +1,6 @@
+# Временно добавить для проверки
 import os
-import logging
+print("ТОКЕН ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ:", os.getenv('TELEGRAM_TOKEN')) import logging
 import telebot
 
 # Настройка логирования
@@ -120,3 +121,4 @@ def send_application(answers, lang, chat_id):
 
 logger.info("🚀 Starting bot in polling mode...")
 bot.polling(none_stop=True)
+

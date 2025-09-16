@@ -7,11 +7,11 @@ import telebot
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Конфигурация - ПРЯМОЕ ПРИСВАИВАНИЕ
-TOKEN = "7592969962:AAE93nt3NRENC9LCxfomvONl7zqozS2SZh8"  # НОВЫЙ ТОКЕН
-GROUP_ID = -1094323262  # Ваш ID
+# Конфигурация
+TOKEN = "7592969962:AAE93nt3NRENC9LCxfomvONl7zqozS2SZh8"
+GROUP_ID = -1094323262
 
-logger.info("✅ Bot starting with NEW TOKEN...")
+logger.info("✅ Bot starting...")
 logger.info(f"Token: {TOKEN}")
 logger.info(f"Group ID: {GROUP_ID}")
 
@@ -36,6 +36,11 @@ QUESTIONS = {
     ]
 }
 
+THANK_YOU = {
+    "ru": "✅ Спасибо! Ваша заявка принята. Мы свяжемся с вами в ближайшее время.",
+    "uz": "✅ Rahmat! So'rovingiz qabul qilindi. Tez orada siz bilan bog'lanamiz."
+}
+
 user_data = {}
 
 @bot.message_handler(commands=['start'])
@@ -58,10 +63,58 @@ def handle_start(message):
     except Exception as e:
         logger.error(f"❌ Error: {e}")
 
+# 🔥 ВАЖНО: Добавляем обработчик для ВСЕХ сообщений
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
+    try:
+        chat_id = message.chat.id
+        
+        # Проверяем, начал ли пользователь диалог
+        if chat_id not in user_data:
+            bot.send_message(chat_id, "Пожалуйста, начните с /start")
+            return
+        
+        user = user_data[chat_id]
+        lang = user['lang']
+        step = user['step']
+        answers = user['answers']
+        
+        logger.info(f"💬 Processing step {step} for chat {chat_id}")
+        
+        # Сохраняем ответ
+        answers.append(message.text)
+        user['step'] += 1
+        
+        # Задаем следующий вопрос или завершаем
+        if user['step'] < len(QUESTIONS[lang]):
+            bot.send_message(chat_id, QUESTIONS[lang][user['step']])
+        else:
+            # Все ответы получены
+            send_application(answers, lang, chat_id)
+            bot.send_message(chat_id, THANK_YOU[lang])
+            del user_data[chat_id]
+            
+    except Exception as e:
+        logger.error(f"❌ Error in handle_all_messages: {e}")
+
+def send_application(answers, lang, chat_id):
+    try:
+        name, address, phone, square, comment = answers
+        
+        if lang == 'ru':
+            text = f"📋 Новая заявка\n\n👤 Имя: {name}\n🏠 Адрес: {address}\n📞 Телефон: {phone}\n📐 Квадратура: {square}\n💬 Комментарий: {comment}"
+        else:
+            text = f"📋 Yangi ariza\n\n👤 Ism: {name}\n🏠 Manzil: {address}\n📞 Telefon: {phone}\n📐 Maydon: {square}\n💬 Izoh: {comment}"
+        
+        bot.send_message(GROUP_ID, text)
+        logger.info(f"📤 Application sent to group {GROUP_ID}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error sending application: {e}")
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
-        logger.info("🔄 Webhook received")
         json_data = request.get_json()
         update = telebot.types.Update.de_json(json_data)
         bot.process_new_updates([update])
@@ -72,7 +125,7 @@ def webhook():
 
 @app.route('/')
 def home():
-    return '✅ Bot is running with NEW TOKEN!'
+    return '✅ Bot is running!'
 
 if __name__ == '__main__':
     logger.info("🚀 Starting Flask server...")

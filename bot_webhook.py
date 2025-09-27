@@ -19,12 +19,16 @@ TEXTS = {
     "ru": {
         "ask_name": "👋 Здравствуйте! Введите, пожалуйста, ваше имя:",
         "ask_phone": "📞 Теперь введите ваш номер телефона:",
+        "ask_address": "📍 Укажите адрес объекта:",
+        "ask_square": "📐 Введите квадратуру фасада (в м²):",
         "ask_comment": "💬 Оставьте комментарий (например, вид фасадных работ):",
         "done": "✅ Спасибо! Ваша заявка принята. Мы скоро свяжемся с вами!",
     },
     "uz": {
         "ask_name": "👋 Assalomu alaykum! Iltimos, ismingizni kiriting:",
         "ask_phone": "📞 Endi telefon raqamingizni kiriting:",
+        "ask_address": "📍 Ob'ekt manzilini kiriting:",
+        "ask_square": "📐 Fasadning kvadraturasini kiriting (m²):",
         "ask_comment": "💬 Izoh qoldiring (masalan, fasad ishlari turi):",
         "done": "✅ Rahmat! So‘rovingiz qabul qilindi. Tez orada siz bilan bog‘lanamiz!",
     }
@@ -60,21 +64,41 @@ def handle_all(message):
 
     elif step == "phone":
         STATE[user_id]["data"]["phone"] = message.text
+        STATE[user_id]["step"] = "address"
+        bot.send_message(user_id, TEXTS[lang]["ask_address"])
+
+    elif step == "address":
+        STATE[user_id]["data"]["address"] = message.text
+        STATE[user_id]["step"] = "square"
+        bot.send_message(user_id, TEXTS[lang]["ask_square"])
+
+    elif step == "square":
+        STATE[user_id]["data"]["square"] = message.text
         STATE[user_id]["step"] = "comment"
         bot.send_message(user_id, TEXTS[lang]["ask_comment"])
 
     elif step == "comment":
         STATE[user_id]["data"]["comment"] = message.text
 
-        # Отправляем заявку в группу
+        # Достаём все данные
         name = STATE[user_id]["data"]["name"]
         phone = STATE[user_id]["data"]["phone"]
+        address = STATE[user_id]["data"]["address"]
+        square = STATE[user_id]["data"]["square"]
         comment = STATE[user_id]["data"]["comment"]
 
-        text = f"📩 Новая заявка:\n\n👤 Имя: {name}\n📞 Телефон: {phone}\n💬 Комментарий: {comment}"
+        # Формируем заявку
+        text = (
+            f"📩 Новая заявка:\n\n"
+            f"👤 Имя: {name}\n"
+            f"📞 Телефон: {phone}\n"
+            f"📍 Адрес: {address}\n"
+            f"📐 Квадратура: {square} м²\n"
+            f"💬 Комментарий: {comment}"
+        )
         bot.send_message(GROUP_CHAT_ID, text)
 
-        # Отвечаем пользователю
+        # Ответ пользователю
         bot.send_message(user_id, TEXTS[lang]["done"])
 
         # Чистим состояние
@@ -103,6 +127,8 @@ with app.app_context():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+
 
 
 

@@ -1,5 +1,8 @@
+
+
 # -*- coding: utf-8 -*-
 import os
+import json
 import telebot
 from flask import Flask, request
 
@@ -11,105 +14,96 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://zuhfacadebot-1.onrender.com/webh
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = Flask(__name__)
 
-# Хранилище состояний
 STATE = {}
+DATA_FILE = "applications.json"
+
+# Загрузка сохранённых заявок
+if os.path.exists(DATA_FILE):
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            STATE = json.load(f)
+    except:
+        STATE = {}
 
 # Тексты на двух языках
 TEXTS = {
     "ru": {
         "ask_name": "👋 Здравствуйте! Введите, пожалуйста, ваше имя:",
-        "ask_phone": "📞 Теперь введите ваш номер телефона:",
+        "ask_phone": "📞 Укажите ваш номер телефона:",
         "ask_address": "📍 Укажите адрес объекта:",
-        "ask_square": "📐 Введите квадратуру фасада (в м²):",
+        "ask_area": "📐 Укажите квадратуру объекта:",
         "ask_comment": "💬 Оставьте комментарий (например, вид фасадных работ):",
         "done": "✅ Спасибо! Ваша заявка принята. Мы скоро свяжемся с вами!",
     },
     "uz": {
         "ask_name": "👋 Assalomu alaykum! Iltimos, ismingizni kiriting:",
-        "ask_phone": "📞 Endi telefon raqamingizni kiriting:",
-        "ask_address": "📍 Ob'ekt manzilini kiriting:",
-        "ask_square": "📐 Fasadning kvadraturasini kiriting (m²):",
+        "ask_phone": "📞 Telefon raqamingizni kiriting:",
+        "ask_address": "📍 Ob’ekt manzilini kiriting:",
+        "ask_area": "📐 Ob’ekt kvadraturasini kiriting:",
         "ask_comment": "💬 Izoh qoldiring (masalan, fasad ishlari turi):",
         "done": "✅ Rahmat! So‘rovingiz qabul qilindi. Tez orada siz bilan bog‘lanamiz!",
     }
 }
 
+QUESTIONS = ["name", "phone", "address", "area", "comment"]
+
+# Сохранение заявок в файл
+def save_state():
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(STATE, f, ensure_ascii=False, indent=2)
 
 # === Хэндлеры ===
 @bot.message_handler(commands=['start'])
 def handle_start(message):
-    lang = "ru"  # язык по умолчанию
+    lang = "ru"
     if message.text.startswith("/start uz"):
         lang = "uz"
 
-    STATE[message.chat.id] = {"step": "name", "lang": lang, "data": {}}
+    STATE[str(message.chat.id)] = {"step": "name", "lang": lang, "data": {}}
+    save_state()
     bot.send_message(message.chat.id, TEXTS[lang]["ask_name"])
-
 
 @bot.message_handler(func=lambda m: True)
 def handle_all(message):
-    user_id = message.chat.id
+    user_id = str(message.chat.id)
 
     if user_id not in STATE:
-        bot.send_message(user_id, "Напишите /start чтобы начать снова.")
+        bot.send_message(message.chat.id, "Напишите /start чтобы начать снова.")
         return
 
     step = STATE[user_id]["step"]
     lang = STATE[user_id]["lang"]
 
-    if step == "name":
-        STATE[user_id]["data"]["name"] = message.text
-        STATE[user_id]["step"] = "phone"
-        bot.send_message(user_id, TEXTS[lang]["ask_phone"])
+    # Сохраняем ответ
+    STATE[user_id]["data"][step] = message.text
 
-    elif step == "phone":
-        STATE[user_id]["data"]["phone"] = message.text
-        STATE[user_id]["step"] = "address"
-        bot.send_message(user_id, TEXTS[lang]["ask_address"])
-
-    elif step == "address":
-        STATE[user_id]["data"]["address"] = message.text
-        STATE[user_id]["step"] = "square"
-        bot.send_message(user_id, TEXTS[lang]["ask_square"])
-
-    elif step == "square":
-        STATE[user_id]["data"]["square"] = message.text
-        STATE[user_id]["step"] = "comment"
-        bot.send_message(user_id, TEXTS[lang]["ask_comment"])
-
-    elif step == "comment":
-        STATE[user_id]["data"]["comment"] = message.text
-
-        # Достаём все данные
-        name = STATE[user_id]["data"]["name"]
-        phone = STATE[user_id]["data"]["phone"]
-        address = STATE[user_id]["data"]["address"]
-        square = STATE[user_id]["data"]["square"]
-        comment = STATE[user_id]["data"]["comment"]
-
-        # Формируем заявку
+    # Переход к следующему шагу
+    current_index = QUESTIONS.index(step)
+    if current_index + 1 < len(QUESTIONS):
+        next_step = QUESTIONS[current_index + 1]
+        STATE[user_id]["step"] = next_step
+        save_state()
+        bot.send_message(message.chat.id, TEXTS[lang][f"ask_{next_step}"])
+    else:
+        # Все ответы собраны
+        data = STATE[user_id]["data"]
         text = (
             f"📩 Новая заявка:\n\n"
-            f"👤 Имя: {name}\n"
-            f"📞 Телефон: {phone}\n"
-            f"📍 Адрес: {address}\n"
-            f"📐 Квадратура: {square} м²\n"
-            f"💬 Комментарий: {comment}"
+            f"👤 Имя: {data.get('name')}\n"
+            f"📞 Телефон: {data.get('phone')}\n"
+            f"📍 Адрес: {data.get('address')}\n"
+            f"📐 Квадратура: {data.get('area')}\n"
+            f"💬 Комментарий: {data.get('comment')}"
         )
         bot.send_message(GROUP_CHAT_ID, text)
-
-        # Ответ пользователю
-        bot.send_message(user_id, TEXTS[lang]["done"])
-
-        # Чистим состояние
+        bot.send_message(message.chat.id, TEXTS[lang]["done"])
         del STATE[user_id]
-
+        save_state()
 
 # === Flask routes ===
-@app.route('/' , methods=['GET'])
+@app.route('/', methods=['GET'])
 def index():
     return "Bot is running!", 200
-
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -118,12 +112,10 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
-
 # Установка вебхука при старте
 with app.app_context():
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))

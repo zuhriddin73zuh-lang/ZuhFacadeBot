@@ -39,12 +39,20 @@ THANK_YOU = {
 
 user_data = {}
 
-# Обработчик для кнопок "Русский" и "Узбекский"
-@bot.message_handler(func=lambda m: m.text in ["Русский", "Узбекский"])
-def handle_language_selection(message):
+# Обработчик для кнопок с параметрами start=ru и start=uz
+@bot.message_handler(commands=['start'])
+def handle_start(message):
     chat_id = message.chat.id
-    lang = "ru" if message.text == "Русский" else "uz"
+    text = message.text
     
+    if 'start=ru' in text:
+        lang = 'ru'
+    elif 'start=uz' in text:
+        lang = 'uz'
+    else:
+        bot.send_message(chat_id, "Выберите язык / Tilni tanlang:")
+        return
+
     user_data[chat_id] = {"lang": lang, "step": 0, "answers": []}
     bot.send_message(chat_id, QUESTIONS[lang][0])
 
@@ -52,7 +60,7 @@ def handle_language_selection(message):
 def handle_all_messages(message):
     chat_id = message.chat.id
     if chat_id not in user_data:
-        return  # Игнорируем сообщения не из диалога
+        return
 
     user = user_data[chat_id]
     lang = user["lang"]
